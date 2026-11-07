@@ -546,6 +546,148 @@ local function ensureBodies(world)
     end
 end
 
+-- Player 2's inventory is not in the game's save (only player 1 is saved): player 2 lost everything on every load.
+-- The mod keeps its own copy, one file per map (Mods/SplitScreenCoop/p2_inventory_<map>.txt): currency, then one
+-- line per item (pickup class path, stack size, durability), written every 5 s when it changed. A new player 2 pawn
+-- with an empty inventory gets it back through GlimpseCharacter:AddPickup(class, count, true); pickup classes the map
+-- has not loaded are requested from CoopMenuFix (v15+: Mods/CoopMenuFix/load.txt) and retried for 30 s.
+-- Not restored: equipped clothes/quickslot assignment (items only).
+local P2INV_PREFIX = "Mods/SplitScreenCoop/p2_inventory_"
+local LOAD_REQUEST_FILE = "Mods/CoopMenuFix/load.txt"
+local p2inv = {}
+
+local function p2InvFile(world)
+    return P2INV_PREFIX .. world:GetFName():ToString() .. ".txt"
+end
+
+local function readP2Inv(path)
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local data = { currency = 0, items = {} }
+    for line in f:lines() do
+        local a, b, c, d = line:match("^(%w+)\t([^\t]*)\t?([^\t]*)\t?([^\t]*)$")
+        if a == "currency" then
+            data.currency = tonumber(b) or 0
+        elseif a == "item" and b ~= "" then
+            data.items[#data.items + 1] = { path = b, stack = tonumber(c) or 1, dur = tonumber(d) }
+        end
+    end
+    f:close()
+    return data
+end
+
+-- A character has several InventoryComponents: InventoryComponent (the bag) and HolsterComponent (the weapon carried
+-- at the belt: AddPickup put a frying pan there). All are saved; AddPickup sends weapons to the holster again.
+local inventoryClass = nil
+
+local function inventoriesOf(pawn)
+    inventoryClass = inventoryClass or StaticFindObject("/Script/GlimpseGame.InventoryComponent")
+    local list = {}
+    for _, cw in ipairs(pawn:GetComponentsByClass(inventoryClass) or {}) do
+        local c = (cw and cw.get) and cw:get() or cw
+        if valid(c) then list[#list + 1] = c end
+    end
+    return list
+end
+
+local function inventoryItemCount(pawn)
+    local n = 0
+    for _, c in ipairs(inventoriesOf(pawn)) do n = n + c.Contents:GetArrayNum() end
+    return n
+end
+
+local function p2InvText(pawn)
+    local lines = { "currency\t" .. tostring(pawn.Currency or 0) }
+    for _, comp in ipairs(inventoriesOf(pawn)) do
+        comp.Contents:ForEach(function(_, el)
+            local o = el:get()
+            if o and o:IsValid() then
+                local path = o:GetClass():GetFullName():match("^%S+ (.+)$")
+                if path then lines[#lines + 1] = string.format("item\t%s\t%d\t%.4f", path, o.CurrentStackSize, o.Durability) end
+            end
+        end)
+    end
+    for _, it in ipairs(p2inv.unresolved or {}) do -- not restorable this session: kept for the next one
+        lines[#lines + 1] = string.format("item\t%s\t%d\t%.4f", it.path, it.stack, it.dur or 1)
+    end
+    return table.concat(lines, "\n") .. "\n"
+end
+
+local function restoreP2Inv(world, pawn)
+    local data = p2inv.data
+    if not p2inv.started then
+        data = readP2Inv(p2InvFile(world))
+        p2inv.data = data
+        if not data then
+            p2inv.restored = true
+            log("player 2 inventory: nothing saved for this map yet")
+            return
+        end
+        if inventoryItemCount(pawn) > 0 then
+            p2inv.restored = true
+            log("player 2 inventory: player 2 already has items, saved copy not restored")
+            return
+        end
+        p2inv.started = true
+        pawn.Currency = data.currency
+    end
+    local missing, added = {}, 0
+    for _, it in ipairs(data.items) do
+        if not it.done then
+            local cls = StaticFindObject(it.path)
+            if valid(cls) then
+                it.done = true
+                local o = pawn:AddPickup(cls, it.stack, true)
+                if valid(o) then
+                    added = added + 1
+                    if it.dur then pcall(function() o.Durability = it.dur end) end
+                end
+            else
+                missing[#missing + 1] = it
+            end
+        end
+    end
+    p2inv.added = (p2inv.added or 0) + added
+    if #missing > 0 and os.clock() - p2inv.since < 30 then
+        local f = io.open(LOAD_REQUEST_FILE, "w")
+        if f then
+            for _, it in ipairs(missing) do f:write(it.path .. "\n") end
+            f:close()
+        end
+        logOnce("player 2 inventory: waiting for " .. #missing .. " item class(es) to load")
+        return
+    end
+    p2inv.unresolved = missing
+    p2inv.restored = true
+    os.remove(LOAD_REQUEST_FILE)
+    log(string.format("player 2 inventory restored: %d item(s), currency %d%s", p2inv.added, data.currency,
+        #missing > 0 and (", " .. #missing .. " not found (kept in the file)") or ""))
+end
+
+local function updateP2Inventory(world)
+    local pc = statics():GetPlayerController(world, 1)
+    local pawn = valid(pc) and pc.Pawn or nil
+    if not valid(pawn) then return end
+    local key = pawn:GetFullName()
+    if p2inv.pawn ~= key then p2inv = { pawn = key, since = os.clock(), ticks = 0 } end
+    if not pawn:AreInventoriesInitialized() then return end
+    if not p2inv.restored then
+        restoreP2Inv(world, pawn)
+        return
+    end
+    p2inv.ticks = p2inv.ticks + 1
+    if p2inv.ticks % 5 ~= 0 then return end
+    local text = p2InvText(pawn)
+    if text ~= p2inv.lastText then
+        local f = io.open(p2InvFile(world), "w")
+        if f then
+            f:write(text)
+            f:close()
+            p2inv.lastText = text
+        end
+    end
+end
+
 local currentWorld = nil
 local activeWorld = nil -- world object while split, for the fast loop
 local menuWasOpen = { false, false }
@@ -1261,6 +1403,7 @@ local function tick()
         menuWasOpen, menuOpenedAt = { false, false }, nil
         pendingRegroup, p2PawnName, fallingSince, lastPos = nil, nil, { nil, nil }, { nil, nil }
         crumbs, safeMove, killZ = {}, nil, nil
+        p2inv = {}
         pcall(function()
             local ws = FindFirstOf("WorldSettings")
             local kz = ws and ws:IsValid() and ws.KillZ
@@ -1307,6 +1450,8 @@ local function tick()
             if not okMenus then logOnce("player menu layout error: " .. tostring(errMenus)) end
         end
         ensureBodies(world)
+        local okInv, errInv = pcall(updateP2Inventory, world)
+        if not okInv then logOnce("player 2 inventory error: " .. tostring(errInv)) end
         local ok, err = pcall(updateStreamingRadius, world)
         if not ok then logOnce("streaming radius error: " .. tostring(err)) end
         return

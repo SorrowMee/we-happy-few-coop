@@ -25,6 +25,10 @@ sandbox. Built on [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) (a Lua mod) plus
   falling out of the world is put back next to the partner. New positions prefer spots the partner recently stood
   on (breadcrumbs) and are verified; a bad spot is retried.
 - **Unstuck:** hold **Select / View** for 2 s to teleport next to the other player (both players).
+- Player 2's inventory is saved: the game only saves player 1, so the mod keeps player 2's items (bag, holster,
+  clothes), their durability and currency in `Mods\SplitScreenCoop\p2_inventory_<map>.txt` and gives them back when
+  player 2 joins. Worn clothes come back in the bag and quickslots are not restored. One file per map: all save
+  slots on the same map share it.
 
 ## Known issues
 

@@ -339,6 +339,27 @@ static void load_coop_assets(void)
             logged[i] = o ? 1 : 2;
         }
     }
+    // Assets the Lua mod asks for (one object path per line in Mods\CoopMenuFix\load.txt), e.g. the pickup classes
+    // of player 2's saved inventory, which the map may not have loaded.
+    {
+        wchar_t path[MAX_PATH];
+        char line[512];
+        FILE *f;
+        _snwprintf_s(path, MAX_PATH, _TRUNCATE, L"%s\\load.txt", g_dir);
+        if (_wfopen_s(&f, path, L"r") == 0 && f) {
+            while (fgets(line, sizeof line, f)) {
+                wchar_t wname[512];
+                size_t n = strcspn(line, "\r\n");
+                void *o;
+                line[n] = 0;
+                if (n == 0 || line[0] != '/') continue;
+                if (!MultiByteToWideChar(CP_UTF8, 0, line, -1, wname, 512)) continue;
+                o = g_staticLoad(cls, NULL, wname, NULL, LOAD_NOWARN_QUIET, NULL, 1);
+                if (!o) log_line("requested asset %s: NOT found", line);
+            }
+            fclose(f);
+        }
+    }
 }
 
 typedef void(__fastcall *ResetBoneFn)(unsigned char *comp, unsigned long long boneName);
@@ -768,7 +789,7 @@ static DWORD WINAPI install(LPVOID unused)
             log_line("could not hook ResetBoneTransformByName");
     } else
         log_line("RegisterComponent/ResetBoneTransformByName bytes differ: registration hook off");
-    log_line("v14 hooked ShowPlayerMenuWithContext, PushUIInput, RemoveUIInput, UpdateUIFocus; ready");
+    log_line("v15 hooked ShowPlayerMenuWithContext, PushUIInput, RemoveUIInput, UpdateUIFocus; ready");
     return 0;
 }
 

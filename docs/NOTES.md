@@ -817,3 +817,21 @@ network co-op) stays a fallback.
   1. g.GlimpseAiManagerLiveLightBudget (game light budget, probably centred on player 1 like the streaming was);
   2. light occlusion queries across two views (r.DisableLightOcclusionQueries / r.LightOcclusionStagger);
   3. cached whole-scene shadows of movable lights (r.Shadow.CacheWholeSceneShadows 0).
+- Published: https://github.com/SorrowMee/we-happy-few-coop (public, 2026-11-07; repo folder cooptudo/we-happy-few-coop; DLL not committed, build with src/coop_menufix/build.cmd).
+- Release v0.1.0 published (zip with prebuilt DLL, SHA-256 d32a3f35...0874); release DLL verified loading in the test copy.
+
+## Phase 18: player 2 inventory persistence (2026-11-07)
+- Owner: player 2 loses the whole inventory on every load (the game saves player 1 only).
+- RE: GlimpseCharacter:AddPickup(class, count, bool) (exec 0x8B4E70 -> vslot 0x9A8, returns the pickup);
+  GlimpsePlayerController:RebuildInventoryFromDump is an empty stub in this build. Characters have several
+  InventoryComponent instances (GetComponentsByClass): InventoryComponent (bag), HolsterComponent (belt weapon),
+  ClothingComponent (worn clothes); Contents = TArray of GlimpsePickup (CurrentStackSize, Durability, bEquipped).
+  Currency = GlimpseCharacter.Currency (int). AddPickup(.., true) puts melee weapons into the holster when it is free.
+- Change: mod saves player 2's items of all inventory components + currency to
+  Mods/SplitScreenCoop/p2_inventory_<map>.txt every 5 s (when changed) and restores them on a new player 2 pawn
+  with an empty inventory (durability set after AddPickup). DLL v15 loads object paths listed in
+  Mods/CoopMenuFix/load.txt (classes not loaded on the map); restore retries 30 s, unresolved items stay in the file.
+- Test (bridge-driven, no second gamepad): gave P2 3 rocks, rolling pin at 7%, 4 bottles, frying pan, 25 currency ->
+  file written; restart + reload: "player 2 inventory restored: 4 item(s), currency 25", rolling pin 0.07 in the
+  holster. Not restored: worn clothes (come back in the bag), quickslot assignment. One file per map, shared by all
+  save slots of that map.
