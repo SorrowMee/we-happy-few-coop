@@ -48,6 +48,12 @@ sandbox. Built on [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) (a Lua mod) plus
 
 Back up your saves first (`%USERPROFILE%\Documents\My Games\We Happy Few\SaveGames`).
 
+**Easiest:** download `we-happy-few-coop-vX.Y.Z.zip` from [Releases](https://github.com/SorrowMee/we-happy-few-coop/releases)
+(helper DLL included), extract UE4SS v3.0.1 into `<game dir>\GlimpseGame\Binaries\Win64`, then extract the zip into
+the same folder and let it replace `Mods\mods.txt`. Start the game normally (no `-log`).
+
+**From source:**
+
 1. Extract UE4SS v3.0.1 into `<game dir>\GlimpseGame\Binaries\Win64`.
 2. Build the helper DLL: run `src\coop_menufix\build.cmd`. It writes `mod\Mods\CoopMenuFix\dlls\main.dll`.
 3. Copy the folders in `mod\Mods\` (`SplitScreenCoop`, `CoopMenuFix`) into `<game dir>\GlimpseGame\Binaries\Win64\Mods\`.
